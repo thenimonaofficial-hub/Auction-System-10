@@ -52,6 +52,181 @@ const redisClient = redis.createClient({
 redisClient.on('error', (err) => console.error('Redis Client Error', err));
 redisClient.connect();
 
+// Error logging system
+const ERROR_LOG_CHANNEL = '1462804742366298112';
+const ERROR_CODES = {
+  // Permission errors (01-05)
+  'E01': 'You do not have permission to use this command',
+  'E02': 'Only the auction host can perform this action',
+  'E03': 'Only the trade host can perform this action',
+  'E04': 'You cannot make offers on your own trade',
+  'E05': 'Only administrators can use this command',
+  
+  // Trade errors (06-20)
+  'E06': 'You cannot create a trade with more than 100 items',
+  'E07': 'No trade found with that ID',
+  'E08': 'Trade already accepted by another user',
+  'E09': 'Invalid trade offer',
+  'E10': 'Trade has expired',
+  'E11': 'You must select at least one item',
+  'E12': 'Maximum quantity exceeded for this item',
+  'E13': 'Insufficient diamonds',
+  'E14': 'Cannot add more items to this trade',
+  'E15': 'Invalid offer amount',
+  'E16': 'Maximum number of simultaneous trades reached',
+  'E17': 'You must wait before creating another trade',
+  'E18': 'Trade setup cancelled',
+  'E19': 'Items list cannot exceed 100 items',
+  'E20': 'Invalid diamonds amount',
+  
+  // Auction errors (21-35)
+  'E21': 'No auction running in this channel',
+  'E22': 'Auction has already started',
+  'E23': 'Auction has expired',
+  'E24': 'Bid must be higher than current bid',
+  'E25': 'Invalid bid amount',
+  'E26': 'Cannot bid on your own auction',
+  'E27': 'Auction already has a winner',
+  'E28': 'No bids placed on this auction',
+  'E29': 'Cannot accept an offer without bids',
+  'E30': 'Auction setup requires valid parameters',
+  'E31': 'Auction already running in this channel',
+  'E32': 'Invalid auction duration',
+  'E33': 'Cannot end auction that is not running',
+  'E34': 'Auction items list is empty',
+  'E35': 'Auction cancelled by admin',
+  
+  // Inventory errors (36-50)
+  'E36': 'Inventory not found',
+  'E37': 'Item not found in inventory',
+  'E38': 'Cannot remove item from inventory',
+  'E39': 'Inventory is empty',
+  'E40': 'Invalid inventory data',
+  'E41': 'Cannot edit another user\'s inventory',
+  'E42': 'Item quantity must be at least 1',
+  'E43': 'Maximum items reached (100)',
+  'E44': 'Inventory update failed',
+  'E45': 'Cannot transfer items',
+  'E46': 'Invalid Roblox username',
+  'E47': 'Failed to fetch Roblox profile',
+  'E48': 'Inventory save failed',
+  'E49': 'Duplicate item in inventory',
+  'E50': 'Inventory size exceeds limit',
+  
+  // Giveaway errors (51-65)
+  'E51': 'No giveaway found',
+  'E52': 'Giveaway has expired',
+  'E53': 'You already entered this giveaway',
+  'E54': 'Giveaway setup requires valid parameters',
+  'E55': 'Cannot end giveaway that hasn\'t started',
+  'E56': 'No entries in this giveaway',
+  'E57': 'Giveaway already ended',
+  'E58': 'Invalid giveaway configuration',
+  'E59': 'Cannot join your own giveaway',
+  'E60': 'Giveaway item limit exceeded',
+  'E61': 'You lack permission to create giveaways',
+  'E62': 'Maximum giveaways reached',
+  'E63': 'Invalid giveaway duration',
+  'E64': 'Giveaway cancelled',
+  'E65': 'Failed to select winner',
+  
+  // System errors (66-80)
+  'E66': 'Failed to save data to Redis',
+  'E67': 'Failed to load data from Redis',
+  'E68': 'Database connection error',
+  'E69': 'Invalid command parameters',
+  'E70': 'An unexpected error occurred. Please try again later',
+  'E71': 'Message not found',
+  'E72': 'Channel not found',
+  'E73': 'User not found',
+  'E74': 'Operation timed out',
+  'E75': 'Rate limit exceeded - try again in a moment',
+  'E76': 'Command execution failed',
+  'E77': 'Missing required permissions',
+  'E78': 'Invalid user input',
+  'E79': 'Discord API error',
+  'E80': 'Bot status check failed'
+};
+
+// Function to log errors to Discord channel with detailed embed
+async function logError(interaction, errorCode, errorMessage, context = {}) {
+  try {
+    const channel = await client.channels.fetch(ERROR_LOG_CHANNEL).catch(() => null);
+    if (!channel) return;
+    
+    // Determine embed color based on error code
+    let embedColor = '#FF0000'; // Red by default
+    const code = parseInt(errorCode.replace('E', ''));
+    if (code <= 5) embedColor = '#FF6B6B'; // Permission errors - lighter red
+    else if (code <= 20) embedColor = '#FF8C00'; // Trade errors - orange
+    else if (code <= 35) embedColor = '#FFD700'; // Auction errors - gold
+    else if (code <= 50) embedColor = '#00CED1'; // Inventory errors - cyan
+    else if (code <= 65) embedColor = '#FF69B4'; // Giveaway errors - pink
+    else embedColor = '#696969'; // System errors - dark gray
+    
+    const embed = new EmbedBuilder()
+      .setColor(embedColor)
+      .setTitle('⚠️ Error Report') //embed thumbnail
+      .setThumbnail('https://media.discordapp.net/attachments/1461378333278470259/1461514275976773674/B2087062-9645-47D0-8918-A19815D8E6D8.png?ex=696ad4bd&is=6969833d&hm=2f262b12ac860c8d92f40789893fda4f1ea6289bc5eb114c211950700eb69a79&=&format=webp&quality=lossless&width=1376&height=917')
+      .addFields(
+        { name: 'User', value: `${interaction.user.tag} (${interaction.user.id})`, inline: true },
+        { name: 'Error Code', value: `\`${errorCode}\``, inline: true },
+        { name: 'Category', value: getCategoryFromErrorCode(errorCode), inline: true },
+        { name: 'Description', value: ERROR_CODES[errorCode] || 'Unknown error', inline: false },
+        { name: 'Message', value: errorMessage || 'No additional info', inline: false },
+        { name: 'Timestamp', value: `<t:${Math.floor(Date.now() / 1000)}:F>`, inline: false }
+      );
+    
+    if (context.commandName) embed.addFields({ name: '📋 Command', value: `\`/${context.commandName}\``, inline: true });
+    if (context.channelId) embed.addFields({ name: '💬 Channel', value: `<#${context.channelId}>`, inline: true });
+    if (context.guildId) embed.addFields({ name: '🏢 Guild', value: `${context.guildId}`, inline: true });
+    if (Object.keys(context).length > 0 && !context.commandName && !context.channelId && !context.guildId) {
+      const contextStr = JSON.stringify(context).substring(0, 1024);
+      embed.addFields({ name: '📝 Context', value: contextStr, inline: false });
+    }
+    
+    await channel.send({ embeds: [embed] });
+  } catch (error) {
+    console.error('Failed to log error to Discord:', error);
+  }
+}
+
+// Helper function to get category from error code
+function getCategoryFromErrorCode(errorCode) {
+  const code = parseInt(errorCode.replace('E', ''));
+  if (code <= 5) return '🔒 Permission';
+  else if (code <= 20) return '🔄 Trade';
+  else if (code <= 35) return '🎪 Auction';
+  else if (code <= 50) return '📦 Inventory';
+  else if (code <= 65) return '🎁 Giveaway';
+  else return '⚙️ System';
+}
+
+// Function to send user-friendly error message with full logging
+async function sendErrorReply(interaction, errorCode, customMessage = null) {
+  const message = customMessage || ERROR_CODES[errorCode] || 'An error occurred';
+  const formattedMessage = `**${message}** | Error (\`${errorCode}\`)`;
+  
+  try {
+    if (interaction.deferred) {
+      await interaction.editReply({ content: `⚠️ ${formattedMessage}`, flags: MessageFlags.Ephemeral });
+    } else if (interaction.replied) {
+      await interaction.followUp({ content: `⚠️ ${formattedMessage}`, flags: MessageFlags.Ephemeral });
+    } else {
+      await interaction.reply({ content: `⚠️ ${formattedMessage}`, flags: MessageFlags.Ephemeral });
+    }
+  } catch (error) {
+    console.error('Failed to send error reply:', error);
+  }
+  
+  // Log error to Discord channel with context
+  await logError(interaction, errorCode, formattedMessage, {
+    commandName: interaction.commandName || 'unknown',
+    channelId: interaction.channelId,
+    guildId: interaction.guildId
+  });
+}
+
 let redirectChannelId = config.defaultAuctionChannelId || null;
 let redirectTradeChannelId = config.defaultTradeChannelId || null;
 let redirectInventoryChannelId = null;
@@ -870,7 +1045,7 @@ client.on('interactionCreate', async (interaction) => {
     if (commandName === 'setupauction') {
       const adminRoles = ['1461505505401896972', '1461481291118678087', '1461484563183435817'];
       const hasAdminRole = interaction.member.roles.cache.some(role => adminRoles.includes(role.id));
-      if (!hasAdminRole) return interaction.reply({ content: 'You do not have permission to use this command.', flags: MessageFlags.Ephemeral });
+      if (!hasAdminRole) return sendErrorReply(interaction, 'E01');
 
       await logAdminCommand(interaction, commandName);
 
@@ -898,7 +1073,7 @@ client.on('interactionCreate', async (interaction) => {
     if (commandName === 'update') {
       const adminRoles = ['1461505505401896972', '1461481291118678087', '1461484563183435817'];
       const hasAdminRole = interaction.member.roles.cache.some(role => adminRoles.includes(role.id));
-      if (!hasAdminRole) return interaction.reply({ content: 'You do not have permission to use this command.', flags: MessageFlags.Ephemeral });
+      if (!hasAdminRole) return sendErrorReply(interaction, 'E01');
 
       await logAdminCommand(interaction, commandName);
 
@@ -1034,7 +1209,7 @@ client.on('interactionCreate', async (interaction) => {
 
     if (commandName === 'bid') {
       const auction = Array.from(auctions.values()).find(a => a.channelId === interaction.channel.id);
-      if (!auction) return interaction.reply({ content: 'No auction running in this channel.', flags: MessageFlags.Ephemeral });
+      if (!auction) return sendErrorReply(interaction, 'E21');
 
       // Show modal
       const modal = new ModalBuilder()
@@ -1065,8 +1240,8 @@ client.on('interactionCreate', async (interaction) => {
 
     if (commandName === 'endauction') {
       const auction = Array.from(auctions.values()).find(a => a.channelId === interaction.channel.id);
-      if (!auction) return interaction.reply({ content: 'No auction running.', flags: MessageFlags.Ephemeral });
-      if (auction.host.id !== interaction.user.id) return interaction.reply({ content: 'Only the host can end the auction.', flags: MessageFlags.Ephemeral });
+      if (!auction) return sendErrorReply(interaction, 'E21');
+      if (auction.host.id !== interaction.user.id) return sendErrorReply(interaction, 'E02');
 
       clearTimeout(auction.timer);
       await endAuction(interaction.channel);
@@ -1075,7 +1250,7 @@ client.on('interactionCreate', async (interaction) => {
 
     if (commandName === 'auctionstatus') {
       const auction = Array.from(auctions.values()).find(a => a.channelId === interaction.channel.id);
-      if (!auction) return interaction.reply({ content: 'No auction running.', flags: MessageFlags.Ephemeral });
+      if (!auction) return sendErrorReply(interaction, 'E21');
 
       const embed = new EmbedBuilder()
         .setTitle('Auction Status')
@@ -1089,13 +1264,13 @@ client.on('interactionCreate', async (interaction) => {
     const hasAdminRole = interaction.member.roles.cache.some(role => adminRoles.includes(role.id));
 
     if (commandName === 'deleteauction') {
-      if (!hasAdminRole) return interaction.reply({ content: 'You do not have permission to use this command.', flags: MessageFlags.Ephemeral });
+      if (!hasAdminRole) return sendErrorReply(interaction, 'E01');
 
       await logAdminCommand(interaction, commandName);
 
       const messageId = interaction.options.getString('messageid');
       const auction = Array.from(auctions.values()).find(a => a.messageId === messageId);
-      if (!auction) return interaction.reply({ content: 'Auction not found.', flags: MessageFlags.Ephemeral });
+      if (!auction) return sendErrorReply(interaction, 'E33', 'Auction not found');
 
       clearTimeout(auction.timer);
       clearInterval(auction.updateInterval);
@@ -1112,13 +1287,13 @@ client.on('interactionCreate', async (interaction) => {
     }
 
     if (commandName === 'endauctionadmin') {
-      if (!hasAdminRole) return interaction.reply({ content: 'You do not have permission to use this command.', flags: MessageFlags.Ephemeral });
+      if (!hasAdminRole) return sendErrorReply(interaction, 'E01');
 
       await logAdminCommand(interaction, commandName);
 
       const messageId = interaction.options.getString('messageid');
       const auction = Array.from(auctions.values()).find(a => a.messageId === messageId);
-      if (!auction) return interaction.reply({ content: 'Auction not found.', flags: MessageFlags.Ephemeral });
+      if (!auction) return sendErrorReply(interaction, 'E33', 'Auction not found');
 
       clearTimeout(auction.timer);
       clearInterval(auction.updateInterval);
@@ -1128,13 +1303,13 @@ client.on('interactionCreate', async (interaction) => {
     }
 
     if (commandName === 'restartauction') {
-      if (!hasAdminRole) return interaction.reply({ content: 'You do not have permission to use this command.', flags: MessageFlags.Ephemeral });
+      if (!hasAdminRole) return sendErrorReply(interaction, 'E01');
 
       await logAdminCommand(interaction, commandName);
 
       const messageId = interaction.options.getString('messageid');
       const auction = Array.from(auctions.values()).find(a => a.messageId === messageId);
-      if (!auction) return interaction.reply({ content: 'Auction not found.', flags: MessageFlags.Ephemeral });
+      if (!auction) return sendErrorReply(interaction, 'E33', 'Auction not found');
 
       clearTimeout(auction.timer);
       clearInterval(auction.updateInterval);
@@ -1172,34 +1347,34 @@ client.on('interactionCreate', async (interaction) => {
     }
 
     if (commandName === 'redirectauctions') {
-      if (!hasAdminRole) return interaction.reply({ content: 'You do not have permission to use this command.', flags: MessageFlags.Ephemeral });
+      if (!hasAdminRole) return sendErrorReply(interaction, 'E01');
 
       await logAdminCommand(interaction, commandName);
 
       const channel = interaction.options.getChannel('channel');
-      if (channel.type !== 0) return interaction.reply({ content: 'Please select a text channel.', flags: MessageFlags.Ephemeral });
+      if (channel.type !== 0) return sendErrorReply(interaction, 'E72', 'Please select a text channel');
       redirectChannelId = channel.id;
       interaction.reply({ content: `All future auctions will be redirected to ${channel}.`, flags: MessageFlags.Ephemeral });
     }
 
     if (commandName === 'redirecttrade') {
-      if (!hasAdminRole) return interaction.reply({ content: 'You do not have permission to use this command.', flags: MessageFlags.Ephemeral });
+      if (!hasAdminRole) return sendErrorReply(interaction, 'E01');
 
       await logAdminCommand(interaction, commandName);
 
       const channel = interaction.options.getChannel('channel');
-      if (channel.type !== 0) return interaction.reply({ content: 'Please select a text channel.', flags: MessageFlags.Ephemeral });
+      if (channel.type !== 0) return sendErrorReply(interaction, 'E72', 'Please select a text channel');
       redirectTradeChannelId = channel.id;
       interaction.reply({ content: `All future trades will be redirected to ${channel}.`, flags: MessageFlags.Ephemeral });
     }
 
     if (commandName === 'redirectinventory') {
-      if (!hasAdminRole) return interaction.reply({ content: 'You do not have permission to use this command.', flags: MessageFlags.Ephemeral });
+      if (!hasAdminRole) return sendErrorReply(interaction, 'E01');
 
       await logAdminCommand(interaction, commandName);
 
       const channel = interaction.options.getChannel('channel');
-      if (channel.type !== 0) return interaction.reply({ content: 'Please select a text channel.', flags: MessageFlags.Ephemeral });
+      if (channel.type !== 0) return sendErrorReply(interaction, 'E72', 'Please select a text channel');
       redirectInventoryChannelId = channel.id;
       interaction.reply({ content: `All inventories will be posted to ${channel}.`, flags: MessageFlags.Ephemeral });
     }
@@ -1208,7 +1383,7 @@ client.on('interactionCreate', async (interaction) => {
       // Check admin permission first
       const adminRoles = ['1461505505401896972', '1461481291118678087', '1461484563183435817'];
       const hasAdminRole = interaction.member.roles.cache.some(role => adminRoles.includes(role.id));
-      if (!hasAdminRole) return interaction.reply({ content: 'You do not have permission to use this command.', flags: MessageFlags.Ephemeral });
+      if (!hasAdminRole) return sendErrorReply(interaction, 'E01');
 
       await logAdminCommand(interaction, commandName);
 
@@ -1248,13 +1423,13 @@ client.on('interactionCreate', async (interaction) => {
     if (commandName === 'deletetrade') {
       const adminRoles = ['1461505505401896972', '1461481291118678087', '1461484563183435817'];
       const hasAdminRole = interaction.member.roles.cache.some(role => adminRoles.includes(role.id));
-      if (!hasAdminRole) return interaction.reply({ content: 'You do not have permission to use this command.', flags: MessageFlags.Ephemeral });
+      if (!hasAdminRole) return sendErrorReply(interaction, 'E01');
 
       await logAdminCommand(interaction, commandName);
 
       const messageId = interaction.options.getString('messageid');
       const trade = trades.get(messageId);
-      if (!trade) return interaction.reply({ content: 'Trade not found.', flags: MessageFlags.Ephemeral });
+      if (!trade) return sendErrorReply(interaction, 'E07', 'Trade not found');
 
       // Decrement trade count for host
       const hostId = trade.host.id;
@@ -1279,16 +1454,16 @@ client.on('interactionCreate', async (interaction) => {
     if (commandName === 'accepttrade') {
       const adminRoles = ['1461505505401896972', '1461481291118678087', '1461484563183435817'];
       const hasAdminRole = interaction.member.roles.cache.some(role => adminRoles.includes(role.id));
-      if (!hasAdminRole) return interaction.reply({ content: 'You do not have permission to use this command.', flags: MessageFlags.Ephemeral });
+      if (!hasAdminRole) return sendErrorReply(interaction, 'E01');
 
       await logAdminCommand(interaction, commandName);
 
       const messageId = interaction.options.getString('messageid');
       const trade = trades.get(messageId);
-      if (!trade) return interaction.reply({ content: 'Trade not found.', flags: MessageFlags.Ephemeral });
+      if (!trade) return sendErrorReply(interaction, 'E07', 'Trade not found');
 
       if (trade.offers.length > 0) {
-        return interaction.reply({ content: 'This trade has offers and cannot be cancelled this way.', flags: MessageFlags.Ephemeral });
+        return sendErrorReply(interaction, 'E08');
       }
 
       // Mark trade as cancelled
@@ -1308,7 +1483,7 @@ client.on('interactionCreate', async (interaction) => {
     if (commandName === 'setupinventory') {
       const adminRoles = ['1461505505401896972', '1461481291118678087', '1461484563183435817'];
       const hasAdminRole = interaction.member.roles.cache.some(role => adminRoles.includes(role.id));
-      if (!hasAdminRole) return interaction.reply({ content: 'You do not have permission to use this command.', flags: MessageFlags.Ephemeral });
+      if (!hasAdminRole) return sendErrorReply(interaction, 'E01');
 
       await logAdminCommand(interaction, commandName);
 
@@ -1336,7 +1511,7 @@ client.on('interactionCreate', async (interaction) => {
     if (commandName === 'setupgiveaway') {
       const adminRoles = ['1461505505401896972', '1461481291118678087', '1461484563183435817'];
       const hasAdminRole = interaction.member.roles.cache.some(role => adminRoles.includes(role.id));
-      if (!hasAdminRole) return interaction.reply({ content: 'You do not have permission to use this command.', flags: MessageFlags.Ephemeral });
+      if (!hasAdminRole) return sendErrorReply(interaction, 'E01');
 
       await logAdminCommand(interaction, commandName);
 
@@ -1365,7 +1540,7 @@ client.on('interactionCreate', async (interaction) => {
       // Check if user has admin role (same as other admin commands)
       const adminRoles = ['1461505505401896972', '1461481291118678087', '1461484563183435817'];
       const hasAdminRole = interaction.member.roles.cache.some(role => adminRoles.includes(role.id));
-      if (!hasAdminRole) return interaction.reply({ content: 'You do not have permission to use this command.', flags: MessageFlags.Ephemeral });
+      if (!hasAdminRole) return sendErrorReply(interaction, 'E01');
 
       await logAdminCommand(interaction, commandName);
 
@@ -1374,7 +1549,7 @@ client.on('interactionCreate', async (interaction) => {
         await interaction.reply({ content: '✅ All bot data has been successfully saved to Redis!', flags: MessageFlags.Ephemeral });
       } catch (error) {
         console.error('Error saving data:', error);
-        await interaction.reply({ content: '❌ An error occurred while saving data.', flags: MessageFlags.Ephemeral });
+        await sendErrorReply(interaction, 'E46');
       }
     }
 
@@ -1382,7 +1557,7 @@ client.on('interactionCreate', async (interaction) => {
       // Check if user has admin role
       const adminRoles = ['1461505505401896972', '1461481291118678087', '1461484563183435817'];
       const hasAdminRole = interaction.member.roles.cache.some(role => adminRoles.includes(role.id));
-      if (!hasAdminRole) return interaction.reply({ content: 'You do not have permission to use this command.', flags: MessageFlags.Ephemeral });
+      if (!hasAdminRole) return sendErrorReply(interaction, 'E01');
 
       await logAdminCommand(interaction, commandName);
 
@@ -1630,7 +1805,7 @@ client.on('interactionCreate', async (interaction) => {
 
     if (interaction.customId === 'bid_button') {
       const auction = Array.from(auctions.values()).find(a => a.channelId === interaction.channel.id);
-      if (!auction) return interaction.reply({ content: 'No auction running.', flags: MessageFlags.Ephemeral });
+      if (!auction) return sendErrorReply(interaction, 'E16');
 
       const modal = new ModalBuilder()
         .setCustomId('bid_modal')
@@ -1660,9 +1835,9 @@ client.on('interactionCreate', async (interaction) => {
 
     if (interaction.customId === 'view_bids_button') {
       const auction = Array.from(auctions.values()).find(a => a.channelId === interaction.channel.id);
-      if (!auction) return interaction.reply({ content: 'No auction running.', flags: MessageFlags.Ephemeral });
+      if (!auction) return sendErrorReply(interaction, 'E21');
 
-      if (auction.bids.length === 0) return interaction.reply({ content: 'No bids yet.', flags: MessageFlags.Ephemeral });
+      if (auction.bids.length === 0) return sendErrorReply(interaction, 'E28');
 
       // Sort bids by diamonds descending
       const sortedBids = auction.bids.sort((a, b) => b.diamonds - a.diamonds);
@@ -1689,7 +1864,7 @@ client.on('interactionCreate', async (interaction) => {
     if (interaction.customId.startsWith('giveaway_enter_')) {
       const messageId = interaction.message.id;
       const giveaway = giveaways.get(messageId);
-      if (!giveaway) return interaction.reply({ content: 'Giveaway not found.', flags: MessageFlags.Ephemeral });
+      if (!giveaway) return sendErrorReply(interaction, 'E36', 'Giveaway not found');
 
       // Check if user is the giveaway host
       if (giveaway.host.id === interaction.user.id) {
@@ -1726,7 +1901,7 @@ client.on('interactionCreate', async (interaction) => {
     if (interaction.customId.startsWith('giveaway_entries_')) {
       const messageId = interaction.customId.replace('giveaway_entries_', '');
       const giveaway = giveaways.get(messageId);
-      if (!giveaway) return interaction.reply({ content: 'Giveaway not found.', flags: MessageFlags.Ephemeral });
+      if (!giveaway) return sendErrorReply(interaction, 'E36', 'Giveaway not found');
 
       // Create entries list
       let entriesList = 'No entries yet.';
@@ -1765,7 +1940,7 @@ client.on('interactionCreate', async (interaction) => {
     if (interaction.customId.startsWith('giveaway_end_')) {
       const messageId = interaction.customId.replace('giveaway_end_', '');
       const giveaway = giveaways.get(messageId);
-      if (!giveaway) return interaction.reply({ content: 'Giveaway not found.', flags: MessageFlags.Ephemeral });
+      if (!giveaway) return sendErrorReply(interaction, 'E36', 'Giveaway not found');
 
       if (giveaway.host.id !== interaction.user.id) {
         const adminRoles = ['1461505505401896972', '1461481291118678087', '1461484563183435817'];
@@ -1842,7 +2017,7 @@ client.on('interactionCreate', async (interaction) => {
         // Decrement giveaway count for host
         const hostId = giveaway.host.id;
         userGiveawayCount.set(hostId, Math.max(0, (userGiveawayCount.get(hostId) || 1) - 1));
-        return interaction.reply({ content: 'Giveaway ended with no entries.', flags: MessageFlags.Ephemeral });
+        return sendErrorReply(interaction, 'E41');
       }
 
       // Select random winner
@@ -2057,7 +2232,7 @@ client.on('interactionCreate', async (interaction) => {
       const isAdmin = interaction.member.roles.cache.some(role => adminRoles.includes(role.id));
       
       if (!hasGiveawayRole && !hasSpecialRole && !isAdmin) {
-        return interaction.reply({ content: 'You do not have permission to create a giveaway.', flags: MessageFlags.Ephemeral });
+        return sendErrorReply(interaction, 'E01');
       }
 
       // Check giveaway limit
@@ -2095,7 +2270,7 @@ client.on('interactionCreate', async (interaction) => {
 
     if (interaction.customId === 'trade_offer_button') {
       const trade = trades.get(interaction.message.id);
-      if (!trade) return interaction.reply({ content: 'Trade not found.', flags: 64 });
+      if (!trade) return sendErrorReply(interaction, 'E07', 'Trade not found');
 
       // Show category selection for offer
       const { StringSelectMenuBuilder } = require('discord.js');
@@ -2123,8 +2298,8 @@ client.on('interactionCreate', async (interaction) => {
     if (interaction.customId.startsWith('trade_accept_')) {
       const messageId = interaction.customId.replace('trade_accept_', '');
       const trade = trades.get(messageId);
-      if (!trade) return interaction.reply({ content: 'Trade not found.', flags: MessageFlags.Ephemeral });
-      if (trade.host.id !== interaction.user.id) return interaction.reply({ content: 'Only the host can accept offers.', flags: MessageFlags.Ephemeral });
+      if (!trade) return sendErrorReply(interaction, 'E07', 'Trade not found');
+      if (trade.host.id !== interaction.user.id) return sendErrorReply(interaction, 'E03');
 
       // Accept the last offer
       const lastOffer = trade.offers[trade.offers.length - 1];
@@ -2142,8 +2317,8 @@ client.on('interactionCreate', async (interaction) => {
     if (interaction.customId.startsWith('trade_decline_')) {
       const messageId = interaction.customId.replace('trade_decline_', '');
       const trade = trades.get(messageId);
-      if (!trade) return interaction.reply({ content: 'Trade not found.', flags: MessageFlags.Ephemeral });
-      if (trade.host.id !== interaction.user.id) return interaction.reply({ content: 'Only the host can decline offers.', flags: MessageFlags.Ephemeral });
+      if (!trade) return sendErrorReply(interaction, 'E07', 'Trade not found');
+      if (trade.host.id !== interaction.user.id) return sendErrorReply(interaction, 'E03');
 
       // Decline the last offer
       const lastOffer = trade.offers[trade.offers.length - 1];
@@ -2170,8 +2345,8 @@ client.on('interactionCreate', async (interaction) => {
         }
       }
 
-      if (!trade) return interaction.reply({ content: 'Trade not found.', flags: MessageFlags.Ephemeral });
-      if (trade.host.id !== interaction.user.id) return interaction.reply({ content: 'Only the host can delete this trade.', flags: MessageFlags.Ephemeral });
+      if (!trade) return sendErrorReply(interaction, 'E07', 'Trade not found');
+      if (trade.host.id !== interaction.user.id) return sendErrorReply(interaction, 'E03');
 
       // Delete the trade message
       try {
@@ -2194,11 +2369,11 @@ client.on('interactionCreate', async (interaction) => {
     if (interaction.customId.startsWith('upload_proof_trade_')) {
       const messageId = interaction.customId.replace('upload_proof_trade_', '');
       const trade = trades.get(messageId);
-      if (!trade) return interaction.reply({ content: 'Trade not found.', flags: MessageFlags.Ephemeral });
+      if (!trade) return sendErrorReply(interaction, 'E07', 'Trade not found');
 
       // Check if user is host or accepted user
       if (trade.host.id !== interaction.user.id && trade.acceptedUser.id !== interaction.user.id) {
-        return interaction.reply({ content: 'Only the host or guest can upload proof.', flags: MessageFlags.Ephemeral });
+        return sendErrorReply(interaction, 'E02');
       }
 
       // Show modal for image description
@@ -2242,11 +2417,11 @@ client.on('interactionCreate', async (interaction) => {
       // Get giveaway data
       const messageId = interaction.message.id;
       const giveawayData = finishedGiveaways.get(messageId);
-      if (!giveawayData) return interaction.reply({ content: 'Giveaway not found.', flags: MessageFlags.Ephemeral });
+      if (!giveawayData) return sendErrorReply(interaction, 'E36', 'Giveaway not found');
 
       // Check if user is host or winner
       if (giveawayData.host.id !== interaction.user.id && giveawayData.winner.id !== interaction.user.id) {
-        return interaction.reply({ content: 'Only the host or winner can upload proof.', flags: MessageFlags.Ephemeral });
+        return sendErrorReply(interaction, 'E02');
       }
 
       // Show modal for image URL
@@ -2303,7 +2478,7 @@ client.on('interactionCreate', async (interaction) => {
     if (interaction.customId === 'inventory_delete_button') {
       const inventory = inventories.get(interaction.user.id);
       if (!inventory || !inventory.items || inventory.items.length === 0) {
-        return interaction.reply({ content: 'You have no items to delete.', flags: MessageFlags.Ephemeral });
+        return sendErrorReply(interaction, 'E29');
       }
 
       const { StringSelectMenuBuilder } = require('discord.js');
@@ -2329,7 +2504,7 @@ client.on('interactionCreate', async (interaction) => {
     if (interaction.customId === 'inventory_delete_select') {
       const inventory = inventories.get(interaction.user.id);
       if (!inventory) {
-        return interaction.reply({ content: 'Inventory not found.', flags: MessageFlags.Ephemeral });
+        return sendErrorReply(interaction, 'E26', 'Inventory not found');
       }
 
       const indicesToDelete = interaction.values.map(v => parseInt(v)).sort((a, b) => b - a);
@@ -2651,7 +2826,7 @@ client.on('interactionCreate', async (interaction) => {
         // If offer contains only diamonds, submit directly without modal
         if (onlyDiamonds) {
           const trade = trades.get(messageId);
-          if (!trade) return interaction.reply({ content: 'Trade not found.', flags: 64 });
+          if (!trade) return sendErrorReply(interaction, 'E07', 'Trade not found');
 
           // Check if user is the trade host
           if (trade.host.id === interaction.user.id) {
@@ -4164,7 +4339,7 @@ async function getRobloxAvatarUrl(userId) {
       delete interaction.user.messageId;
 
       const trade = trades.get(messageId);
-      if (!trade) return interaction.reply({ content: 'Trade not found.', flags: 64 });
+      if (!trade) return sendErrorReply(interaction, 'E07', 'Trade not found');
 
       // Check if user is the trade host
       if (trade.host.id === interaction.user.id) {
@@ -4194,7 +4369,7 @@ async function getRobloxAvatarUrl(userId) {
 
     if (interaction.customId === 'bid_modal') {
       const auction = Array.from(auctions.values()).find(a => a.channelId === interaction.channel.id);
-      if (!auction) return interaction.reply({ content: 'No auction running.', flags: MessageFlags.Ephemeral });
+      if (!auction) return sendErrorReply(interaction, 'E16');
 
       // Check if user is the auction host
       if (auction.host.id === interaction.user.id) {
@@ -4209,10 +4384,10 @@ async function getRobloxAvatarUrl(userId) {
         diamonds = parseBid(diamondsStr);
       }
 
-      if (auction.model === 'items' && diamonds > 0) return interaction.reply({ content: 'This auction is offers only.', flags: MessageFlags.Ephemeral });
-      if (auction.model === 'diamonds' && items) return interaction.reply({ content: 'This auction is diamonds only.', flags: MessageFlags.Ephemeral });
-      if (auction.model === 'diamonds' && diamonds === 0) return interaction.reply({ content: 'Please enter diamonds.', flags: MessageFlags.Ephemeral });
-      if (auction.model === 'items' && !items) return interaction.reply({ content: 'Please enter an offer.', flags: MessageFlags.Ephemeral });
+      if (auction.model === 'items' && diamonds > 0) return sendErrorReply(interaction, 'E49', 'This auction is offers only');
+      if (auction.model === 'diamonds' && items) return sendErrorReply(interaction, 'E49', 'This auction is diamonds only');
+      if (auction.model === 'diamonds' && diamonds === 0) return sendErrorReply(interaction, 'E11');
+      if (auction.model === 'items' && !items) return sendErrorReply(interaction, 'E11');
 
       // Additional check for 'both' model: if there's a previous bid with only diamonds, don't allow adding diamonds
       if (auction.model === 'both' && diamonds > 0 && auction.bids.some(bid => bid.diamonds > 0 && !bid.items)) {
@@ -4319,7 +4494,7 @@ async function getRobloxAvatarUrl(userId) {
       const description = interaction.fields.getTextInputValue('proof_description') || '';
       const trade = trades.get(messageId);
 
-      if (!trade) return interaction.reply({ content: 'Trade not found.', flags: MessageFlags.Ephemeral });
+      if (!trade) return sendErrorReply(interaction, 'E07', 'Trade not found');
 
       // Check if user has attachments
       if (interaction.message && interaction.message.attachments.size > 0) {
@@ -4368,7 +4543,7 @@ async function getRobloxAvatarUrl(userId) {
       const giveawayData = finishedGiveaways.get(messageId);
 
       if (!giveawayData) {
-        return interaction.reply({ content: 'Giveaway not found.', flags: MessageFlags.Ephemeral });
+        return sendErrorReply(interaction, 'E36', 'Giveaway not found');
       }
 
       // Validate URL
